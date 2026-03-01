@@ -1,0 +1,10 @@
+PyQt6
+pymupdf
+langchain
+langchain-openai
+langchain-community
+faiss-cpu
+openai
+tiktoken
+python-dotenv
+yt-dlp
