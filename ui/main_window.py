@@ -1,26 +1,23 @@
 """
 main_window.py — PDF RAG Desktop Assistant
 
-Architecture:
-  The window has ONE permanent splitter with THREE panes, all created once
-  and never moved:
+Layout uses ONE splitter with TWO panes only:
 
-      [Search pane] | [PDF Viewer] | [Chat pane]
+  Normal mode:  [LEFT: search-section + chat-section] | [RIGHT: PDF Viewer]
+  Focus mode:   [LEFT: chat-section only (search hidden)] | [RIGHT: PDF Viewer]
 
-  Focus mode simply hides the Search pane — no widget reparenting ever occurs.
-  This eliminates the "wrapped C++ object deleted" crash entirely.
+The toggle button lives in the chat-section header → always visible.
+The search-section (dir, search bar, pdf list, badge) is a sub-widget
+inside the left pane that gets shown/hidden. Nothing is ever reparented.
 """
 
-import sys
-import os
-import re
-import subprocess
+import sys, os, re, subprocess
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter,
     QLabel, QLineEdit, QPushButton, QListWidget, QListWidgetItem,
     QTextBrowser, QSpinBox, QFileDialog, QMessageBox,
-    QSizePolicy, QApplication
+    QSizePolicy, QApplication, QFrame
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QTextCursor
@@ -28,8 +25,7 @@ from PyQt6.QtGui import QTextCursor
 from ui.pdf_viewer import PDFViewer
 from ui.workers import IndexWorker, QAWorker
 
-
-# ── Palette ────────────────────────────────────────────────────────────────────
+# ── Palette ───────────────────────────────────────────────────────────────────
 DARK_BG  = "#1e1e2e"
 PANEL_BG = "#2a2a3e"
 ACCENT   = "#7c6af7"
@@ -46,105 +42,56 @@ QMainWindow, QWidget {{
     font-family: 'Segoe UI', 'Inter', 'Helvetica Neue', sans-serif;
     font-size: 13px;
 }}
-QSplitter::handle {{
-    background: {BORDER};
-    width: 2px;
-}}
+QSplitter::handle {{ background: {BORDER}; width: 2px; }}
 QLineEdit {{
-    background: {CARD_BG};
-    border: 1px solid {BORDER};
-    border-radius: 6px;
-    padding: 5px 10px;
-    color: {TEXT_CLR};
+    background: {CARD_BG}; border: 1px solid {BORDER};
+    border-radius: 6px; padding: 5px 10px; color: {TEXT_CLR};
 }}
 QLineEdit:focus {{ border: 1px solid {ACCENT}; }}
 QPushButton {{
-    background: {ACCENT};
-    color: white;
-    border: none;
-    border-radius: 6px;
-    padding: 5px 12px;
-    font-weight: bold;
+    background: {ACCENT}; color: white; border: none;
+    border-radius: 6px; padding: 5px 12px; font-weight: bold;
 }}
 QPushButton:hover {{ background: #8f7ef9; }}
 QPushButton:disabled {{ background: {BORDER}; color: {MUTED}; }}
 QPushButton#secondary {{
-    background: {CARD_BG};
-    border: 1px solid {BORDER};
-    color: {TEXT_CLR};
+    background: {CARD_BG}; border: 1px solid {BORDER}; color: {TEXT_CLR};
 }}
 QPushButton#secondary:hover {{ border: 1px solid {ACCENT}; }}
 QPushButton#toggleBtn {{
-    background: transparent;
-    border: 1px solid {ACCENT};
-    color: {ACCENT};
-    border-radius: 6px;
-    padding: 3px 10px;
-    font-size: 11px;
-    font-weight: bold;
+    background: transparent; border: 1px solid {ACCENT}; color: {ACCENT};
+    border-radius: 6px; padding: 3px 10px; font-size: 11px; font-weight: bold;
 }}
 QPushButton#toggleBtn:hover {{ background: {ACCENT}; color: white; }}
 QListWidget {{
-    background: {CARD_BG};
-    border: 1px solid {BORDER};
-    border-radius: 6px;
-    padding: 3px;
+    background: {CARD_BG}; border: 1px solid {BORDER};
+    border-radius: 6px; padding: 3px;
 }}
-QListWidget::item {{
-    padding: 5px 8px;
-    border-radius: 4px;
-    margin: 1px 0;
-}}
+QListWidget::item {{ padding: 5px 8px; border-radius: 4px; margin: 1px 0; }}
 QListWidget::item:selected {{ background: {ACCENT}; color: white; }}
 QListWidget::item:hover:!selected {{ background: {BORDER}; }}
 QTextBrowser {{
-    background: {CARD_BG};
-    border: 1px solid {BORDER};
-    border-radius: 6px;
-    padding: 6px;
-    color: {TEXT_CLR};
+    background: {CARD_BG}; border: 1px solid {BORDER};
+    border-radius: 6px; padding: 6px; color: {TEXT_CLR};
 }}
 QSpinBox {{
-    background: {CARD_BG};
-    border: 1px solid {BORDER};
-    border-radius: 6px;
-    padding: 3px 6px;
-    color: {TEXT_CLR};
-    min-width: 60px;
+    background: {CARD_BG}; border: 1px solid {BORDER};
+    border-radius: 6px; padding: 3px 6px; color: {TEXT_CLR}; min-width: 60px;
 }}
 QLabel#sectionHeader {{
-    color: {MUTED};
-    font-size: 10px;
-    font-weight: bold;
-    letter-spacing: 0.08em;
-    margin-top: 4px;
+    color: {MUTED}; font-size: 10px; font-weight: bold;
+    letter-spacing: 0.08em; margin-top: 4px;
 }}
 QLabel#dirLabel {{
-    background: {CARD_BG};
-    border: 1px solid {BORDER};
-    border-radius: 6px;
-    padding: 3px 8px;
-    color: {MUTED};
-    font-size: 11px;
+    background: {CARD_BG}; border: 1px solid {BORDER};
+    border-radius: 6px; padding: 3px 8px; color: {MUTED}; font-size: 11px;
 }}
 QLabel#bookBadge {{
-    background: #3a2e6e;
-    border: 1px solid {ACCENT};
-    border-radius: 10px;
-    padding: 2px 10px;
-    color: #c4b8ff;
-    font-size: 11px;
-    font-weight: bold;
+    background: #3a2e6e; border: 1px solid {ACCENT}; border-radius: 10px;
+    padding: 2px 10px; color: #c4b8ff; font-size: 11px; font-weight: bold;
 }}
-QScrollBar:vertical {{
-    background: {PANEL_BG};
-    width: 6px;
-    border-radius: 3px;
-}}
-QScrollBar::handle:vertical {{
-    background: {BORDER};
-    border-radius: 3px;
-}}
+QScrollBar:vertical {{ background: {PANEL_BG}; width: 6px; border-radius: 3px; }}
+QScrollBar::handle:vertical {{ background: {BORDER}; border-radius: 3px; }}
 QScrollBar::handle:vertical:hover {{ background: {ACCENT}; }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
 """
@@ -153,50 +100,82 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.store = None
-        self.pdf_results: list[dict] = []
+        self.store         = None
+        self.pdf_results   = []
         self._index_worker = None
-        self._qa_worker = None
-        self._focus_mode = False
+        self._qa_worker    = None
+        self._focus_mode   = False
 
         self.setWindowTitle("📚 PDF Research Assistant")
         self.resize(1440, 900)
         self.setStyleSheet(APP_STYLE)
-
         self._build_ui()
 
         from PyQt6.QtCore import QTimer
         QTimer.singleShot(100, self._pick_directory)
 
-    # ══════════════════════════════════════════════════════════════ build UI ══
+    # ═══════════════════════════════════════════════════════════════ build UI ══
 
     def _build_ui(self):
         """
-        Build the permanent 3-pane layout:
-            search_pane | pdf_viewer | chat_pane
+        Splitter: left_panel | pdf_viewer
 
-        Focus mode = search_pane.hide()  (no widget moves, no reparenting)
+        left_panel (QVBoxLayout):
+          ┌─ self.search_section  (QWidget — hidden in focus mode)
+          │    dir row
+          │    search row
+          │    pdf list
+          │    book badge
+          └─ self.chat_section  (QWidget — always visible)
+               chat header (badge + toggle btn)
+               chat display
+               question input row
         """
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.setHandleWidth(2)
         self.setCentralWidget(self.splitter)
 
-        self._build_search_pane()   # pane 0
-        self._build_pdf_viewer()    # pane 1
-        self._build_chat_pane()     # pane 2
+        # ── Left panel ────────────────────────────────────────────────────────
+        self.left_panel = QWidget()
+        self.left_panel.setMinimumWidth(300)
+        self.left_panel.setMaximumWidth(480)
+        lv = QVBoxLayout(self.left_panel)
+        lv.setContentsMargins(0, 0, 0, 0)
+        lv.setSpacing(0)
 
-        self.splitter.setSizes([360, 720, 360])
+        # search_section — shown in normal mode, hidden in focus mode
+        self.search_section = QWidget()
+        ssv = QVBoxLayout(self.search_section)
+        ssv.setContentsMargins(6, 6, 6, 4)
+        ssv.setSpacing(4)
+        self._build_search_section(ssv)
+        lv.addWidget(self.search_section)
 
-    # ── Pane 0: Search ────────────────────────────────────────────────────────
+        # thin divider line
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setStyleSheet(f"color: {BORDER};")
+        lv.addWidget(line)
 
-    def _build_search_pane(self):
-        self.search_pane = QWidget()
-        self.search_pane.setMinimumWidth(280)
-        self.search_pane.setMaximumWidth(420)
-        sv = QVBoxLayout(self.search_pane)
-        sv.setContentsMargins(6, 6, 6, 6)
-        sv.setSpacing(4)
+        # chat_section — always visible
+        self.chat_section = QWidget()
+        csv = QVBoxLayout(self.chat_section)
+        csv.setContentsMargins(6, 4, 6, 6)
+        csv.setSpacing(4)
+        self._build_chat_section(csv)
+        lv.addWidget(self.chat_section, stretch=1)
 
+        self.splitter.addWidget(self.left_panel)
+
+        # ── PDF Viewer ────────────────────────────────────────────────────────
+        self.pdf_viewer = PDFViewer()
+        self.splitter.addWidget(self.pdf_viewer)
+
+        self.splitter.setSizes([420, 1020])
+
+    # ── Search section widgets ─────────────────────────────────────────────────
+
+    def _build_search_section(self, sv: QVBoxLayout):
         # Directory row
         dir_row = QHBoxLayout()
         self.lbl_dir = QLabel("No directory selected")
@@ -204,7 +183,6 @@ class MainWindow(QMainWindow):
         self.lbl_dir.setWordWrap(False)
         self.lbl_dir.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         dir_row.addWidget(self.lbl_dir)
-
         btn_change = QPushButton("📂")
         btn_change.setObjectName("secondary")
         btn_change.setFixedSize(28, 26)
@@ -213,7 +191,7 @@ class MainWindow(QMainWindow):
         dir_row.addWidget(btn_change)
         sv.addLayout(dir_row)
 
-        # Search bar
+        # Search bar + k
         sv.addWidget(self._section("SEARCH"))
         search_row = QHBoxLayout()
         self.search_bar = QLineEdit()
@@ -231,11 +209,11 @@ class MainWindow(QMainWindow):
         search_row.addWidget(btn_search)
         sv.addLayout(search_row)
 
-        # PDF results list
+        # PDF list
         sv.addWidget(self._section("RELEVANT PDFs  ·  click=preview  ·  dbl-click=open"))
         self.pdf_list = QListWidget()
         self.pdf_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
-        self.pdf_list.setMinimumHeight(100)
+        self.pdf_list.setMinimumHeight(90)
         self.pdf_list.setMaximumHeight(200)
         self.pdf_list.itemClicked.connect(self._on_pdf_clicked)
         self.pdf_list.itemDoubleClicked.connect(self._open_pdf_external)
@@ -251,37 +229,24 @@ class MainWindow(QMainWindow):
         badge_row.addStretch()
         sv.addLayout(badge_row)
 
-        sv.addStretch()
-        self.splitter.addWidget(self.search_pane)
+    # ── Chat section widgets ───────────────────────────────────────────────────
 
-    # ── Pane 1: PDF Viewer ────────────────────────────────────────────────────
-
-    def _build_pdf_viewer(self):
-        self.pdf_viewer = PDFViewer()
-        self.splitter.addWidget(self.pdf_viewer)
-
-    # ── Pane 2: Chat ─────────────────────────────────────────────────────────
-
-    def _build_chat_pane(self):
-        self.chat_pane = QWidget()
-        self.chat_pane.setMinimumWidth(280)
-        cv = QVBoxLayout(self.chat_pane)
-        cv.setContentsMargins(6, 6, 6, 6)
-        cv.setSpacing(4)
-
-        # Top bar: book badge + focus toggle
-        top_row = QHBoxLayout()
+    def _build_chat_section(self, cv: QVBoxLayout):
+        # Header: book badge + toggle button (always visible)
+        header = QHBoxLayout()
         self.lbl_book_badge_chat = QLabel("No PDF selected")
         self.lbl_book_badge_chat.setObjectName("bookBadge")
-        top_row.addWidget(self.lbl_book_badge_chat)
-        top_row.addStretch()
+        self.lbl_book_badge_chat.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
+        header.addWidget(self.lbl_book_badge_chat)
 
-        self.btn_toggle = QPushButton("⛶ Focus")
+        self.btn_toggle = QPushButton("⛶  Focus")
         self.btn_toggle.setObjectName("toggleBtn")
-        self.btn_toggle.setToolTip("Hide search panel for more space")
+        self.btn_toggle.setToolTip("Focus mode: hide search, expand PDF+Chat")
         self.btn_toggle.clicked.connect(self._toggle_focus_mode)
-        top_row.addWidget(self.btn_toggle)
-        cv.addLayout(top_row)
+        header.addWidget(self.btn_toggle)
+        cv.addLayout(header)
 
         # Chat display
         cv.addWidget(self._section("CHAT"))
@@ -308,31 +273,34 @@ class MainWindow(QMainWindow):
         q_row.addWidget(self.btn_ask)
         cv.addLayout(q_row)
 
-        self.splitter.addWidget(self.chat_pane)
-
     def _section(self, text: str) -> QLabel:
         lbl = QLabel(text)
         lbl.setObjectName("sectionHeader")
         return lbl
 
-    # ══════════════════════════════════════════════════════ focus mode toggle ══
+    # ═══════════════════════════════════════════════════════ focus toggle ══════
 
     def _toggle_focus_mode(self):
-        """Show/hide the search pane. No widgets are ever moved."""
+        """
+        Normal → Focus: hide search_section → left panel shows chat only,
+                        PDF viewer expands.
+        Focus  → Normal: show search_section again.
+        chat_section and its toggle button are NEVER hidden.
+        """
         self._focus_mode = not self._focus_mode
+        total = self.splitter.width()
+
         if self._focus_mode:
-            self.search_pane.hide()
-            self.btn_toggle.setText("⊞ Search")
-            self.btn_toggle.setToolTip("Show search panel")
-            # Give the PDF viewer more space
-            total = self.splitter.width()
-            self.splitter.setSizes([0, total - 380, 380])
+            self.search_section.hide()
+            self.btn_toggle.setText("⊞  Search")
+            self.btn_toggle.setToolTip("Back to Search mode: Search+Chat | PDF")
+            # left panel shrinks to just the chat, PDF expands
+            self.splitter.setSizes([380, total - 380])
         else:
-            self.search_pane.show()
-            self.btn_toggle.setText("⛶ Focus")
-            self.btn_toggle.setToolTip("Hide search panel for more space")
-            total = self.splitter.width()
-            self.splitter.setSizes([340, total - 700, 360])
+            self.search_section.show()
+            self.btn_toggle.setText("⛶  Focus")
+            self.btn_toggle.setToolTip("Focus mode: hide search, expand PDF+Chat")
+            self.splitter.setSizes([420, total - 420])
 
     # ════════════════════════════════════════════════════ directory / index ══
 
@@ -340,8 +308,6 @@ class MainWindow(QMainWindow):
         path = QFileDialog.getExistingDirectory(self, "Select PDF Directory")
         if not path:
             if not self.store:
-                # User cancelled on first launch — keep app open, show hint.
-                # The 📂 button is always available to try again.
                 self.lbl_dir.setText("⚠️  Click 📂 to select a PDF directory")
                 self.lbl_dir.setStyleSheet(
                     "background:#3a2020; border:1px solid #884444;"
@@ -349,16 +315,14 @@ class MainWindow(QMainWindow):
                     "color:#ffaaaa; font-size:11px;"
                 )
             return
-        # Reset any warning styling
         self.lbl_dir.setStyleSheet("")
         self._start_indexing(path)
 
     def _start_indexing(self, directory: str):
         max_len = 38
-        display = directory if len(directory) <= max_len else "…" + directory[-(max_len - 1):]
+        display = directory if len(directory) <= max_len else "…" + directory[-(max_len-1):]
         self.lbl_dir.setText(display)
         self.lbl_dir.setToolTip(directory)
-
         self.search_bar.setEnabled(False)
         self.question_input.setEnabled(False)
         self.btn_ask.setEnabled(False)
@@ -368,9 +332,7 @@ class MainWindow(QMainWindow):
         self._index_worker = IndexWorker(directory, parent=self)
         self._index_worker.finished.connect(self._on_index_done)
         self._index_worker.error.connect(self._on_index_error)
-        self._index_worker.progress.connect(
-            lambda m: self._append_chat("system", f"  {m}")
-        )
+        self._index_worker.progress.connect(lambda m: self._append_chat("system", f"  {m}"))
         self._index_worker.start()
 
     def _on_index_done(self, store, num_pdfs: int):
@@ -386,7 +348,7 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, "Indexing Error", msg)
         self._append_chat("system", f"❌ {msg}\n")
 
-    # ══════════════════════════════════════════════════════════════ search ══
+    # ════════════════════════════════════════════════════════════════ search ══
 
     def _do_search(self):
         if not self.store:
@@ -437,7 +399,7 @@ class MainWindow(QMainWindow):
     def _set_book_badge(self, name: str):
         if name:
             display = name[:-4] if name.lower().endswith(".pdf") else name
-            label = f"📖  {display}"
+            label   = f"📖  {display}"
             self.lbl_book_badge.setText(label)
             self.lbl_book_badge.setVisible(True)
             self.lbl_book_badge_chat.setText(label)
@@ -456,9 +418,7 @@ class MainWindow(QMainWindow):
 
         selected = self.pdf_list.selectedItems()
         if selected:
-            selected_pdfs = [
-                i.data(Qt.ItemDataRole.UserRole)["pdf_name"] for i in selected
-            ]
+            selected_pdfs = [i.data(Qt.ItemDataRole.UserRole)["pdf_name"] for i in selected]
         elif self.pdf_results:
             selected_pdfs = [r["pdf_name"] for r in self.pdf_results]
         else:
@@ -476,21 +436,17 @@ class MainWindow(QMainWindow):
         self._qa_worker.error.connect(self._on_qa_error)
         self._qa_worker.start()
 
-    def _on_qa_done(self, answer: str, video: dict | None):
+    def _on_qa_done(self, answer: str, video):
         self._remove_thinking_line()
         self._append_chat("assistant", answer)
-
         if video:
             self._append_raw_html(
-                f'<p style="margin:4px 0 12px 14px; color:#f5a623;">'
+                f'<p style="margin:4px 0 12px 14px;color:#f5a623;">'
                 f'🎥&nbsp;<b>{self._esc(video["title"])}</b><br>'
-                f'<span style="color:{MUTED};">'
-                f'{self._esc(video["channel"])} · {video["duration"]}'
-                f'</span><br>'
+                f'<span style="color:{MUTED};">{self._esc(video["channel"])} · {video["duration"]}</span><br>'
                 f'<a href="{video["url"]}" style="color:#7ec8e3;">{video["url"]}</a>'
                 f'</p>'
             )
-
         self.question_input.setEnabled(True)
         self.btn_ask.setEnabled(True)
         self.question_input.setFocus()
@@ -501,28 +457,24 @@ class MainWindow(QMainWindow):
         self.question_input.setEnabled(True)
         self.btn_ask.setEnabled(True)
 
-    # ═══════════════════════════════════════════════════════ chat helpers ══
+    # ══════════════════════════════════════════════════════════ chat helpers ══
 
     def _markdown_to_html(self, text: str) -> str:
         text = self._esc(text)
-        # **bold**
         text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
-        # `inline code`
         text = re.sub(
             r"`(.+?)`",
             r'<code style="background:#1a1a2e;padding:1px 5px;border-radius:3px;'
             r'font-family:monospace;color:#a8d8a8;">\1</code>',
             text,
         )
-        # [filename, p.N] → citation pill
         text = re.sub(
             r"\[([^\]]+?,\s*p\.\d+)\]",
             r'<span style="background:#2e3a5e;border:1px solid #4a5a8e;'
             r'border-radius:8px;padding:0 6px;font-size:11px;color:#9ab4f0;">[\1]</span>',
             text,
         )
-        text = text.replace("\n", "<br>")
-        return text
+        return text.replace("\n", "<br>")
 
     def _append_chat(self, role: str, text: str):
         if role == "user":
@@ -546,7 +498,6 @@ class MainWindow(QMainWindow):
             )
         else:
             html = f'<p style="margin:2px 0;color:{TEXT_CLR};">{self._esc(text)}</p>'
-
         self._append_raw_html(html)
 
     def _append_raw_html(self, html: str):
@@ -559,7 +510,7 @@ class MainWindow(QMainWindow):
         )
 
     def _remove_thinking_line(self):
-        doc = self.chat_display.document()
+        doc    = self.chat_display.document()
         cursor = QTextCursor(doc)
         cursor.movePosition(QTextCursor.MoveOperation.End)
         for _ in range(30):
