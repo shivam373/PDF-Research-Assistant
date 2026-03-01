@@ -29,7 +29,7 @@ pip install -r requirements.txt
 ### 2. Set your OpenAI API key
 
 ```bash
-cp .env.example .env
+.env
 # Edit .env and paste your key
 ```
 
@@ -47,7 +47,7 @@ python main.py
 pdf-rag-desktop/
 ├── main.py                  # Entry point
 ├── requirements.txt
-├── .env.example             # Copy to .env and add your key
+├── .env            # add your key here 
 │
 ├── ui/
 │   ├── main_window.py       # Full application UI
