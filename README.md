@@ -4,7 +4,7 @@ A desktop application that lets you **semantically search** a folder of PDFs and
 
 ---
 
-## ✨ Features
+## Features
 
 | Feature | Details |
 |---|---|
@@ -18,7 +18,7 @@ A desktop application that lets you **semantically search** a folder of PDFs and
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Install dependencies
 
@@ -69,7 +69,7 @@ pdf-rag-desktop/
 
 ---
 
-## 🖥 How to Use
+## How to Use
 
 ### Step 1 — Pick a PDF directory
 On launch, a folder picker appears. Choose any folder that contains `.pdf` files.
@@ -104,7 +104,7 @@ The answer will include:
 
 ---
 
-## 🔄 Re-indexing
+## Re-indexing
 
 The FAISS index is **persisted** to `data/vector_store/`. If you add new PDFs to your folder, delete `data/vector_store/` and restart to re-index.
 
@@ -112,7 +112,7 @@ Future enhancement: automatic change detection.
 
 ---
 
-## 💡 Tips
+## Tips
 
 - **Select specific PDFs** before asking to get more focused answers.
 - Use descriptive topic searches (e.g. *"neural network training"* not just *"neural"*).
@@ -134,3 +134,5 @@ embeddings = OllamaEmbeddings(model="nomic-embed-text")
 ```
 
 Then run `ollama pull llama3.1` and `ollama pull nomic-embed-text`.
+
+
