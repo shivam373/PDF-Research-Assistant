@@ -135,4 +135,9 @@ embeddings = OllamaEmbeddings(model="nomic-embed-text")
 
 Then run `ollama pull llama3.1` and `ollama pull nomic-embed-text`.
 
+## Desktop Application 
+```
+https://drive.google.com/drive/folders/1F1iNknbhLT59SvA6yD5fM-U19j_-1qJR?usp=drive_link
+```
+You can Directly Copy the link and download the application. Just paste your openAI api in `.env `.
 
